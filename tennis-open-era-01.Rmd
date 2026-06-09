@@ -1,0 +1,281 @@
+---
+title: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Example: Ranking of tennis players from the open era
+
+Simple player ranking model from https://www.pymc-labs.com/blog-posts/pymc-stan-benchmark.
+
+\[
+s_p \sim \mathrm{Normal}(0, 1), \qquad p = 1,\ldots,P
+\]
+
+\[
+\Pr(y_{pk}=1 \mid \mathbf{s})
+=
+\operatorname{logit}^{-1}
+\left(s_{w_{pk}} - s_{\ell_{pk}}\right)
+=
+\frac{1}{1 + \exp\left[-(s_{w_{pk}} - s_{\ell_{pk}})\right]} .
+\]
+
+\[
+y_{pk} \mid \mathbf{s}
+\sim
+\operatorname{Bernoulli}
+\left\{
+\operatorname{logit}^{-1}
+\left(s_{w_{pk}} - s_{\ell_{pk}}\right)
+\right\}.
+\]
+
+```{r cars}
+library(XMCMC)
+library(coda)
+
+set.seed(123)
+
+# ----------------------------
+# Download Jeff Sackmann ATP data
+# ----------------------------
+
+since_year <- 1968L
+end_year <- 2026L
+
+download_atp_year <- function(year) {
+    urls <- c(
+        sprintf(
+            "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_%d.csv",
+            year
+        ),
+        sprintf(
+            "https://github.com/JeffSackmann/tennis_atp/raw/master/atp_matches_%d.csv",
+            year
+        ),
+        sprintf(
+            "https://cdn.jsdelivr.net/gh/JeffSackmann/tennis_atp@master/atp_matches_%d.csv",
+            year
+        )
+    )
+    
+    dest <- tempfile(fileext = ".csv")
+    
+    for (u in urls) {
+        message("Trying ", year, ": ", u)
+        
+        ok <- tryCatch({
+            download.file(
+                url = u,
+                destfile = dest,
+                quiet = TRUE,
+                mode = "wb",
+                method = "libcurl"
+            )
+            TRUE
+        }, error = function(e) FALSE)
+        
+        if (!ok || !file.exists(dest) || file.info(dest)$size == 0L) {
+            next
+        }
+        
+        first_line <- readLines(dest, n = 1L, warn = FALSE)
+        
+        if (length(first_line) == 1L && grepl("tourney_id", first_line) &&
+            grepl("winner_id", first_line) && grepl("loser_id", first_line)) {
+            x <- read.csv(dest, stringsAsFactors = FALSE)
+            x$year <- year
+            message("  read ", nrow(x), " matches")
+            return(x)
+        }
+    }
+    
+    message("  skipped ", year, ": could not download/read a valid ATP CSV")
+    NULL
+}
+
+match_list <- lapply(seq.int(since_year, end_year), download_atp_year)
+match_list <- Filter(Negate(is.null), match_list)
+
+if (length(match_list) == 0L) {
+    stop("No ATP match files were downloaded. Try opening one URL in a browser, or clone JeffSackmann/tennis_atp locally.")
+}
+
+matches <- do.call(rbind, match_list)
+
+matches <- matches[
+    !is.na(matches$winner_id) &
+        !is.na(matches$loser_id) &
+        matches$winner_id != matches$loser_id,
+]
+
+cat("Raw matches:", nrow(matches), "\n")
+# ----------------------------
+# Build compact 1-based player ids
+# ----------------------------
+ids <- sort(unique(c(matches$winner_id, matches$loser_id)))
+id_map <- setNames(seq_along(ids), ids)
+
+winner_ids <- as.integer(id_map[as.character(matches$winner_id)])
+loser_ids  <- as.integer(id_map[as.character(matches$loser_id)])
+
+n_matches <- length(winner_ids)
+n_players <- length(ids)
+
+player_lookup <- data.frame(
+    xmcmc_id = seq_along(ids),
+    player_id = ids,
+    player_name = NA_character_
+)
+
+nm <- rbind(
+    data.frame(player_id = matches$winner_id, player_name = matches$winner_name),
+    data.frame(player_id = matches$loser_id,  player_name = matches$loser_name)
+)
+nm <- nm[!duplicated(nm$player_id), ]
+
+player_lookup$player_name <- nm$player_name[match(player_lookup$player_id, nm$player_id)]
+
+cat("n_matches:", n_matches, "\n")
+cat("n_players:", n_players, "\n")
+
+# one local row for each player-match appearance
+local_winner_ids <- c(winner_ids, winner_ids)
+local_loser_ids  <- c(loser_ids, loser_ids)
+local_win        <- rep.int(1L, 2L * n_matches)
+
+local_player <- c(winner_ids, loser_ids)
+ord <- order(local_player)
+
+local_winner_ids <- as.integer(local_winner_ids[ord])
+local_loser_ids  <- as.integer(local_loser_ids[ord])
+local_win        <- as.integer(local_win[ord])
+local_player     <- local_player[ord]
+
+p_len <- as.integer(tabulate(local_player, nbins = n_players))
+p_start <- as.integer(cumsum(c(1L, head(p_len, -1L))))
+
+# because local rows are already sorted by player, local_pos is just row number
+local_pos <- as.integer(seq_along(local_win))
+
+win <- rep.int(1L, n_matches)
+
+mod_data <- list(
+    n_matches = as.integer(n_matches),
+    n_players = as.integer(n_players),
+    win = as.integer(win),
+    winner_ids = as.integer(winner_ids),
+    loser_ids = as.integer(loser_ids),
+    p_start = as.integer(p_start),
+    p_len = as.integer(p_len),
+    local_pos = as.integer(local_pos),
+    local_winner_ids = as.integer(local_winner_ids),
+    local_loser_ids = as.integer(local_loser_ids),
+    local_win = as.integer(local_win)
+)
+
+# ----------------------------
+# XMCMC model
+# ----------------------------
+
+model_src <- '
+param skill(n_players)
+block skill(p) {
+  skill(p) ~ dnorm(0.0, 1.0);
+  for (k = 0:(p_len(p)-1)) {
+    local_win(1) ~ dbern(inv_logit(skill(local_winner_ids(local_pos(p_start(p) + k))) - skill(local_loser_ids(local_pos(p_start(p) + k)))));
+  }
+}
+'
+
+library(XMCMC)
+
+fit <- XMCMC(model = model_src, data = mod_data, samples = 5000,
+    burnin = 1000, out = "tennis_chain.bin", log_cache_bits = 20L)
+
+# draws <- read_XMCMC("tennis_chain.bin")
+
+draws <- as.data.frame(read_XMCMC("tennis_chain.bin"))
+
+skill_cols <- grep("^skill\\[", names(draws), value = TRUE)
+
+top_players <- order(p_len, decreasing = TRUE)[1:min(12L, length(p_len))]
+plot_cols <- c("log_sd[1]", paste0("skill[", top_players, "]"))
+plot_cols <- plot_cols[plot_cols %in% names(draws)]
+
+plot_trace_pages <- function(draws, cols, n_per_page = 4L) {
+    old_par <- par(no.readonly = TRUE)
+    on.exit(par(old_par), add = TRUE)
+    
+    pages <- split(cols, ceiling(seq_along(cols) / n_per_page))
+    
+    for (page in seq_along(pages)) {
+        these <- pages[[page]]
+        
+        dev.new(width = 9, height = 2.4 * length(these))
+        par(mfrow = c(length(these), 1), mar = c(3, 4, 2, 1))
+        
+        for (nm in these) {
+            plot(
+                draws[[nm]],
+                type = "l",
+                main = nm,
+                xlab = "Saved draw",
+                ylab = "Value"
+            )
+        }
+    }
+}
+
+plot_trace_pages(draws, plot_cols, n_per_page = 4L)
+
+
+# ----------------------------
+# Convert to coda object
+# ----------------------------
+
+library(coda)
+
+draws <- as.data.frame(read_XMCMC("tennis_chain.bin"))
+mcmc_draws <- as.mcmc(draws[, plot_cols, drop = FALSE])
+
+cat("\nESS for plotted parameters:\n")
+print(effectiveSize(mcmc_draws))
+
+cat("\nSummary for plotted parameters:\n")
+print(summary(mcmc_draws))
+
+draws <- as.data.frame(read_XMCMC("tennis_chain.bin"))
+
+skill_cols <- grep("^skill", names(draws), value = TRUE)
+
+skill_id <- as.integer(gsub("[^0-9]", "", skill_cols))
+skill_means <- colMeans(draws[, skill_cols, drop = FALSE])
+
+ok <- !is.na(skill_id) & skill_id >= 1 & skill_id <= nrow(player_lookup)
+
+all_ranked <- data.frame(
+    xmcmc_id = skill_id[ok],
+    player_id = player_lookup$player_id[skill_id[ok]],
+    player = player_lookup$player_name[skill_id[ok]],
+    mean_score = as.numeric(skill_means[ok]),
+    n_matches = p_len[skill_id[ok]]
+)
+
+all_ranked <- all_ranked[order(-all_ranked$mean_score), ]
+all_ranked$rank <- seq_len(nrow(all_ranked))
+
+all_ranked <- all_ranked[, c(
+    "rank", "xmcmc_id", "player_id", "player", "mean_score", "n_matches"
+)]
+
+print(head(all_ranked, 50), row.names = FALSE)
+
+unlink("tennis_chain.bin")
+unlink("tennis_chain.bin.metadata.rds")
+unlink("tennis_chain.bin.param_names.rds")
+```
