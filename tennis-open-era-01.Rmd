@@ -184,17 +184,22 @@ mod_data <- list(
 
 model_src <- '
 param skill(n_players)
+
 block skill(p) {
   skill(p) ~ dnorm(0.0, 1.0);
   for (k = 0:(p_len(p)-1)) {
-    local_win(1) ~ dbern(inv_logit(skill(local_winner_ids(local_pos(p_start(p) + k))) - skill(local_loser_ids(local_pos(p_start(p) + k)))));
+    int posn = local_pos(p_start(p) + k);
+    double swr = skill(local_winner_ids(posn));
+    double slr = skill(local_loser_ids(posn));
+    
+    local_win(1) ~ dbern(inv_logit(swr - slr));
   }
 }
 '
 
 library(XMCMC)
 
-fit <- XMCMC(model = model_src, data = mod_data, samples = 5000,
+fit <- XMCMC(model = model_src, data = mod_data, samples = 1000,
     burnin = 1000, out = "tennis_chain.bin", log_cache_bits = 20L)
 
 # draws <- read_XMCMC("tennis_chain.bin")

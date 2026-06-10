@@ -644,17 +644,22 @@ mod_data &lt;- list(
 
 model_src &lt;- &#39;
 param skill(n_players)
+
 block skill(p) {
   skill(p) ~ dnorm(0.0, 1.0);
   for (k = 0:(p_len(p)-1)) {
-    local_win(1) ~ dbern(inv_logit(skill(local_winner_ids(local_pos(p_start(p) + k))) - skill(local_loser_ids(local_pos(p_start(p) + k)))));
+    int posn = local_pos(p_start(p) + k);
+    double swr = skill(local_winner_ids(posn));
+    double slr = skill(local_loser_ids(posn));
+    
+    local_win(1) ~ dbern(inv_logit(swr - slr));
   }
 }
 &#39;
 
 library(XMCMC)
 
-fit &lt;- XMCMC(model = model_src, data = mod_data, samples = 5000,
+fit &lt;- XMCMC(model = model_src, data = mod_data, samples = 1000,
     burnin = 1000, out = &quot;tennis_chain.bin&quot;, log_cache_bits = 20L)
 
 # draws &lt;- read_XMCMC(&quot;tennis_chain.bin&quot;)
@@ -708,51 +713,51 @@ cat(&quot;\nESS for plotted parameters:\n&quot;)</code></pre>
 ## ESS for plotted parameters:</code></pre>
 <pre class="r"><code>print(effectiveSize(mcmc_draws))</code></pre>
 <pre><code>##  skill[279] skill[2277] skill[2736] skill[2668]  skill[613]  skill[117] 
-##    921.9466    447.0884    871.5897    666.2163    991.2711    829.8053 
+##    172.1669    151.5829    168.6173    149.7953    197.0783    147.6962 
 ##  skill[277] skill[1343]  skill[124] skill[2341]  skill[551]   skill[72] 
-##    734.6435    705.0912    836.7575    512.7285   1041.4899    997.8613</code></pre>
+##    223.4392    208.4632    149.1660    203.3092    247.5455    238.8794</code></pre>
 <pre class="r"><code>cat(&quot;\nSummary for plotted parameters:\n&quot;)</code></pre>
 <pre><code>## 
 ## Summary for plotted parameters:</code></pre>
 <pre class="r"><code>print(summary(mcmc_draws))</code></pre>
 <pre><code>## 
-## Iterations = 1:5000
+## Iterations = 1:1000
 ## Thinning interval = 1 
 ## Number of chains = 1 
-## Sample size per chain = 5000 
+## Sample size per chain = 1000 
 ## 
 ## 1. Empirical mean and standard deviation for each variable,
 ##    plus standard error of the mean:
 ## 
-##              Mean      SD  Naive SE Time-series SE
-## skill[279]  3.363 0.06990 0.0009886       0.002302
-## skill[2277] 3.571 0.07296 0.0010318       0.003451
-## skill[2736] 3.711 0.07954 0.0011248       0.002694
-## skill[2668] 3.602 0.07859 0.0011114       0.003045
-## skill[613]  3.457 0.07920 0.0011201       0.002516
-## skill[117]  2.711 0.07162 0.0010129       0.002486
-## skill[277]  2.897 0.07427 0.0010503       0.002740
-## skill[1343] 3.026 0.07761 0.0010976       0.002923
-## skill[124]  2.700 0.07274 0.0010287       0.002515
-## skill[2341] 2.467 0.07324 0.0010357       0.003234
-## skill[551]  3.468 0.08311 0.0011753       0.002575
-## skill[72]   3.000 0.07513 0.0010624       0.002378
+##              Mean      SD Naive SE Time-series SE
+## skill[279]  3.353 0.07140 0.002258       0.005441
+## skill[2277] 3.569 0.07132 0.002255       0.005793
+## skill[2736] 3.703 0.07545 0.002386       0.005810
+## skill[2668] 3.587 0.07851 0.002483       0.006414
+## skill[613]  3.449 0.08081 0.002556       0.005757
+## skill[117]  2.710 0.06524 0.002063       0.005369
+## skill[277]  2.901 0.07011 0.002217       0.004691
+## skill[1343] 3.029 0.07788 0.002463       0.005394
+## skill[124]  2.693 0.07328 0.002317       0.006000
+## skill[2341] 2.456 0.06618 0.002093       0.004642
+## skill[551]  3.460 0.08415 0.002661       0.005349
+## skill[72]   2.992 0.07163 0.002265       0.004634
 ## 
 ## 2. Quantiles for each variable:
 ## 
 ##              2.5%   25%   50%   75% 97.5%
-## skill[279]  3.229 3.317 3.361 3.409 3.497
-## skill[2277] 3.434 3.520 3.569 3.617 3.720
-## skill[2736] 3.562 3.656 3.710 3.765 3.871
-## skill[2668] 3.446 3.547 3.602 3.655 3.755
-## skill[613]  3.296 3.404 3.459 3.512 3.603
-## skill[117]  2.576 2.661 2.712 2.761 2.858
-## skill[277]  2.753 2.848 2.893 2.949 3.050
-## skill[1343] 2.881 2.973 3.026 3.078 3.181
-## skill[124]  2.556 2.652 2.699 2.749 2.845
-## skill[2341] 2.325 2.418 2.466 2.519 2.608
-## skill[551]  3.306 3.408 3.471 3.524 3.630
-## skill[72]   2.859 2.945 2.998 3.052 3.146</code></pre>
+## skill[279]  3.200 3.312 3.355 3.395 3.478
+## skill[2277] 3.433 3.523 3.569 3.611 3.709
+## skill[2736] 3.563 3.646 3.699 3.758 3.854
+## skill[2668] 3.431 3.537 3.588 3.638 3.740
+## skill[613]  3.286 3.390 3.453 3.505 3.593
+## skill[117]  2.580 2.666 2.704 2.758 2.858
+## skill[277]  2.757 2.853 2.891 2.956 3.039
+## skill[1343] 2.886 2.978 3.031 3.083 3.196
+## skill[124]  2.556 2.647 2.693 2.743 2.848
+## skill[2341] 2.321 2.415 2.454 2.504 2.582
+## skill[551]  3.305 3.396 3.453 3.520 3.617
+## skill[72]   2.854 2.936 2.992 3.039 3.133</code></pre>
 <pre class="r"><code>draws &lt;- as.data.frame(read_XMCMC(&quot;tennis_chain.bin&quot;))
 
 skill_cols &lt;- grep(&quot;^skill&quot;, names(draws), value = TRUE)
@@ -779,56 +784,56 @@ all_ranked &lt;- all_ranked[, c(
 
 print(head(all_ranked, 50), row.names = FALSE)</code></pre>
 <pre><code>##  rank xmcmc_id player_id                player mean_score n_matches
-##     1     2736    104925        Novak Djokovic   3.710812      1427
-##     2     2668    104745          Rafael Nadal   3.601866      1326
-##     3     2277    103819         Roger Federer   3.570576      1545
-##     4      419    100437            Bjorn Borg   3.492902       800
-##     5      551    100581          John McEnroe   3.467853      1087
-##     6      613    100656            Ivan Lendl   3.456710      1317
-##     7     6373    207989        Carlos Alcaraz   3.415741       371
-##     8       28    100029             Rod Laver   3.413416       727
-##     9      279    100284         Jimmy Connors   3.362771      1581
-##    10     6280    206173         Jannik Sinner   3.274280       457
-##    11     1457    101948          Pete Sampras   3.132332       996
-##    12     1147    101414          Boris Becker   3.075734       941
-##    13     1343    101736          Andre Agassi   3.025817      1147
-##    14       72    100074           Arthur Ashe   3.000055      1081
-##    15     1008    101222         Stefan Edberg   2.989979      1077
-##    16     2732    104918           Andy Murray   2.989805      1017
-##    17       15    100016          Ken Rosewall   2.952875       738
-##    18     2382    104053          Andy Roddick   2.899050       827
-##    19      277    100282       Guillermo Vilas   2.897185      1243
-##    20     2858    105223 Juan Martin del Potro   2.866764       621
-##    21       85    100087         John Newcombe   2.798580       797
-##    22      603    100644      Alexander Zverev   2.740952       790
-##    23      908    101062         Mats Wilander   2.738341       793
-##    24     3229    106421       Daniil Medvedev   2.720380       638
-##    25      117    100119          Ilie Nastase   2.710987      1285
-##    26      124    100126            Stan Smith   2.700233      1133
-##    27       82    100084             Tom Okker   2.686378       962
-##    28     2240    103720        Lleyton Hewitt   2.660574       883
-##    29      334    100342      Vitas Gerulaitis   2.654175       776
-##    30     1219    101529         Michael Stich   2.630282       564
-##    31      229    100232           Eddie Dibbs   2.596061       873
-##    32     1373    101793           Jim Courier   2.552181       745
-##    33       98    100100            Tony Roche   2.546746       559
-##    34      628    100676          Yannick Noah   2.537469       696
-##    35     1157    101426         Kent Carlsson   2.528956       218
-##    36       25    100026         Andres Gimeno   2.526385       387
-##    37       90    100092        Alex Metreveli   2.525900       399
-##    38      527    100555       Jose Luis Clerc   2.524777       538
-##    39     5752    126774    Stefanos Tsitsipas   2.511686       581
-##    40     2579    104542    Jo-Wilfried Tsonga   2.509238       714
-##    41     1500    102021         Michael Chang   2.504137       978
-##    42      172    100174        Manuel Orantes   2.497288      1052
-##    43     2315    103900      David Nalbandian   2.495471       579
-##    44      257    100261       Brian Gottfried   2.485457      1034
-##    45      889    101036        Miloslav Mecir   2.475437       384
-##    46     2341    103970          David Ferrer   2.466546      1119
-##    47     2608    104607         Tomas Berdych   2.460147       988
-##    48      126    100128          Cliff Richey   2.454089       714
-##    49      304    100309          Raul Ramirez   2.453572       822
-##    50     3011    105683          Milos Raonic   2.448737       584</code></pre>
+##     1     2736    104925        Novak Djokovic   3.702983      1427
+##     2     2668    104745          Rafael Nadal   3.587233      1326
+##     3     2277    103819         Roger Federer   3.569319      1545
+##     4      419    100437            Bjorn Borg   3.498164       800
+##     5      551    100581          John McEnroe   3.459776      1087
+##     6      613    100656            Ivan Lendl   3.448861      1317
+##     7     6373    207989        Carlos Alcaraz   3.419107       371
+##     8       28    100029             Rod Laver   3.405054       727
+##     9      279    100284         Jimmy Connors   3.353472      1581
+##    10     6280    206173         Jannik Sinner   3.268781       457
+##    11     1457    101948          Pete Sampras   3.135376       996
+##    12     1147    101414          Boris Becker   3.071603       941
+##    13     1343    101736          Andre Agassi   3.029210      1147
+##    14       72    100074           Arthur Ashe   2.992335      1081
+##    15     1008    101222         Stefan Edberg   2.988073      1077
+##    16     2732    104918           Andy Murray   2.984875      1017
+##    17       15    100016          Ken Rosewall   2.946410       738
+##    18      277    100282       Guillermo Vilas   2.900799      1243
+##    19     2382    104053          Andy Roddick   2.899019       827
+##    20     2858    105223 Juan Martin del Potro   2.849249       621
+##    21       85    100087         John Newcombe   2.800871       797
+##    22      908    101062         Mats Wilander   2.732237       793
+##    23      603    100644      Alexander Zverev   2.725095       790
+##    24     3229    106421       Daniil Medvedev   2.713664       638
+##    25      117    100119          Ilie Nastase   2.710119      1285
+##    26      124    100126            Stan Smith   2.693249      1133
+##    27       82    100084             Tom Okker   2.674709       962
+##    28     2240    103720        Lleyton Hewitt   2.658830       883
+##    29      334    100342      Vitas Gerulaitis   2.657761       776
+##    30     1219    101529         Michael Stich   2.623794       564
+##    31      229    100232           Eddie Dibbs   2.596016       873
+##    32     1373    101793           Jim Courier   2.557521       745
+##    33      628    100676          Yannick Noah   2.539510       696
+##    34       98    100100            Tony Roche   2.538974       559
+##    35     1157    101426         Kent Carlsson   2.526792       218
+##    36      527    100555       Jose Luis Clerc   2.520237       538
+##    37       25    100026         Andres Gimeno   2.517633       387
+##    38       90    100092        Alex Metreveli   2.516814       399
+##    39     2579    104542    Jo-Wilfried Tsonga   2.507594       714
+##    40     5752    126774    Stefanos Tsitsipas   2.503580       581
+##    41     1500    102021         Michael Chang   2.502183       978
+##    42      172    100174        Manuel Orantes   2.500092      1052
+##    43     2315    103900      David Nalbandian   2.489642       579
+##    44      257    100261       Brian Gottfried   2.483351      1034
+##    45      889    101036        Miloslav Mecir   2.475188       384
+##    46     2341    103970          David Ferrer   2.456328      1119
+##    47     2608    104607         Tomas Berdych   2.454787       988
+##    48      126    100128          Cliff Richey   2.451634       714
+##    49      304    100309          Raul Ramirez   2.448521       822
+##    50     1651    102338    Yevgeny Kafelnikov   2.436905       920</code></pre>
 <pre class="r"><code>unlink(&quot;tennis_chain.bin&quot;)
 unlink(&quot;tennis_chain.bin.metadata.rds&quot;)
 unlink(&quot;tennis_chain.bin.param_names.rds&quot;)</code></pre>
