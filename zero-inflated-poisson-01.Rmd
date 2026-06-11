@@ -50,24 +50,30 @@ param theta(2)
 dparam z(n, 0, 1)
 
 block theta(j) {
+  double il_theta1 = inv_logit(theta(1));
+  double ex_theta2 = exp(theta(2));
+  
   for (i = 1:n) {
-    z(i) ~ dbern(inv_logit(theta(1)));
+    z(i) ~ dbern(il_theta1);
 
     if (z(i) == 0) {
       if (y(i) != 0) return -INFINITY;
     } else {
-      y(i) ~ dpois(exp(theta(2)));
+      y(i) ~ dpois(ex_theta2);
     }
   }
 }
 
 block z(i) {
-  z(i) ~ dbern(inv_logit(theta(1)));
+  double il_theta1 = inv_logit(theta(1));
+  double ex_theta2 = exp(theta(2));
+  
+  z(i) ~ dbern(il_theta1);
 
   if (z(i) == 0) {
     if (y(i) != 0) return -INFINITY;
   } else {
-    y(i) ~ dpois(exp(theta(2)));
+    y(i) ~ dpois(ex_theta2);
   }
 }
 '
@@ -83,7 +89,7 @@ fit <- XMCMC(
   model = model_src,
   data = mod_data,
   update = "block",
-  samples = 10000L,
+  samples = 2000L,
   burnin = 1000L,
   out = "chain_biochemists_zip.bin"
 )

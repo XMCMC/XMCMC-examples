@@ -1,0 +1,535 @@
+---
+title: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Example: Bayesian variable selection
+
+A sparse Gaussian regression model with binary latent inclusion indicators.
+
+\[
+\gamma_j \mid \pi \sim \operatorname{Bernoulli}(\pi),
+\qquad j = 1,\ldots,p .
+\]
+
+\[
+\beta_j \sim \operatorname{Normal}(0, 1),
+\qquad
+\alpha \sim \operatorname{Normal}(0, 10),
+\qquad
+\log \sigma \sim \operatorname{Normal}(0, 2).
+\]
+
+\[
+\operatorname{logit}(\pi) \sim \operatorname{Normal}(-4.6, 1.5).
+\]
+
+\[
+\mu_i = \alpha + \sum_{j=1}^p \gamma_j \beta_j x_{ij},
+\qquad
+ y_i \mid \alpha, \boldsymbol\beta, \boldsymbol\gamma, \sigma
+ \sim \operatorname{Normal}(\mu_i, \sigma),
+\qquad i = 1,\ldots,n .
+\]
+
+The posterior inclusion probability for predictor \(j\) is
+
+\[
+\Pr(\gamma_j = 1 \mid y),
+\]
+
+and the posterior distribution of the selected regression effect is summarized using
+
+\[
+\gamma_j \beta_j.
+\]
+
+```{r cars}
+library(XMCMC)
+library(coda)
+
+set.seed(123)
+
+# -------------------------
+# Simulate sparse regression data
+# -------------------------
+
+n <- 150L
+p <- 500L
+s <- 8L
+
+x <- matrix(rnorm(n * p), nrow = n, ncol = p)
+x <- scale(x)
+
+active <- sort(sample.int(p, s))
+
+beta_true <- numeric(p)
+beta_true[active] <- c(2.4, -2.1, 1.8, -1.6, 1.4, -1.2, 1.0, -0.9)
+
+alpha_true <- 0.5
+sigma_true <- 1.0
+
+y <- as.numeric(alpha_true + x %*% beta_true + rnorm(n, 0, sigma_true))
+y <- as.numeric(scale(y, center = TRUE, scale = FALSE))
+
+cat("n:", n, "\n")
+cat("p:", p, "\n")
+cat("true active predictors:", active, "\n")
+cat("true non-zero betas:\n")
+print(data.frame(j = active, beta_true = beta_true[active]))
+
+# -------------------------
+# Bayesian variable-selection model
+# -------------------------
+# gamma(j) = 0 excludes predictor j
+# gamma(j) = 1 includes predictor j
+#
+# The likelihood is written in the Kuo-Mallick form:
+#   mu_i = alpha + sum_j gamma_j beta_j x_ij
+
+model_src <- '
+param alpha(1)
+param beta(p)
+param logsigma(1)
+param logit_pi(1)
+dparam gamma(p, 0, 1)
+
+block alpha(1), beta(j), logsigma(1) {
+  double sigma = exp(logsigma(1));
+
+  alpha(1) ~ dnorm(0, 10);
+  logsigma(1) ~ dnorm(0, 2);
+
+  for (k = 1:p) {
+    beta(k) ~ dnorm(0, 1);
+  }
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (k = 1:p) {
+      if (gamma(k) != 0) {
+        mu += beta(k) * x(i,k);
+      }
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block gamma(j) {
+  double pi = inv_logit(logit_pi(1));
+  double sigma = exp(logsigma(1));
+
+  gamma(j) ~ dbern(pi);
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (k = 1:p) {
+      if (gamma(k) != 0) {
+        mu += beta(k) * x(i,k);
+      }
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block logit_pi(1) {
+  double pi = inv_logit(logit_pi(1));
+
+  logit_pi(1) ~ dnorm(-4.6, 1.5);
+
+  for (k = 1:p) {
+    gamma(k) ~ dbern(pi);
+  }
+}
+'
+
+model_src <- '
+param alpha(1)
+param beta(p)
+param logsigma(1)
+param logit_pi(1)
+dparam gamma(p, 0, 1)
+
+block beta(j) {
+  double sigma = exp(logsigma(1));
+
+  beta(j) ~ dnorm(0, 1);
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (k = 1:p) {
+      if (gamma(k) != 0) {
+        mu += beta(k) * x(i,k);
+      }
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block alpha(1), logsigma(1) {
+  double sigma = exp(logsigma(1));
+
+  alpha(1) ~ dnorm(0, 10);
+  logsigma(1) ~ dnorm(0, 2);
+
+  for (k = 1:p) {
+    beta(k) ~ dnorm(0, 1);
+  }
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (k = 1:p) {
+      if (gamma(k) != 0) {
+        mu += beta(k) * x(i,k);
+      }
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block gamma(j) {
+  double pi = inv_logit(logit_pi(1));
+  double sigma = exp(logsigma(1));
+
+  gamma(j) ~ dbern(pi);
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (k = 1:p) {
+      if (gamma(k) != 0) {
+        mu += beta(k) * x(i,k);
+      }
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block logit_pi(1) {
+  double pi = inv_logit(logit_pi(1));
+
+  logit_pi(1) ~ dnorm(-4.6, 1.5);
+
+  for (k = 1:p) {
+    gamma(k) ~ dbern(pi);
+  }
+}
+'
+
+model_src <- '
+param alpha(1)
+param beta(p)
+param logsigma(1)
+param logit_pi(1)
+dparam gamma(p, 0, 1)
+
+block beta(j) {
+  beta(j) ~ dnorm(0, 1);
+
+  if (gamma(j) != 0) {
+    double sigma = exp(logsigma(1));
+
+    for (i = 1:n) {
+      double mu = alpha(1);
+
+      for (k = 1:p) {
+        if (gamma(k) != 0) {
+          mu += beta(k) * x(i,k);
+        }
+      }
+
+      y(i) ~ dnorm(mu, sigma);
+    }
+  }
+}
+
+block alpha(1), logsigma(1) {
+  double sigma = exp(logsigma(1));
+
+  alpha(1) ~ dnorm(0, 10);
+  logsigma(1) ~ dnorm(0, 2);
+
+  for (k = 1:p) {
+    beta(k) ~ dnorm(0, 1);
+  }
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (k = 1:p) {
+      if (gamma(k) != 0) {
+        mu += beta(k) * x(i,k);
+      }
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block gamma(j) {
+  double pi = inv_logit(logit_pi(1));
+  double sigma = exp(logsigma(1));
+
+  gamma(j) ~ dbern(pi);
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (k = 1:p) {
+      if (gamma(k) != 0) {
+        mu += beta(k) * x(i,k);
+      }
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block logit_pi(1) {
+  double pi = inv_logit(logit_pi(1));
+
+  logit_pi(1) ~ dnorm(-4.6, 1.5);
+
+  for (k = 1:p) {
+    gamma(k) ~ dbern(pi);
+  }
+}
+'
+
+model_src <- '
+param alpha(1)
+param beta(p)
+param logsigma(1)
+param logit_pi(1)
+dparam gamma(p, 0, 1)
+
+block beta(j) {
+  beta(j) ~ dnorm(0, 1);
+
+  if (gamma(j) != 0) {
+    double sigma = exp(logsigma(1));
+
+    int nactive = 0;
+    int active[p];
+
+    for (k = 1:p) {
+      if (gamma(k) != 0) {
+        active[nactive] = k;
+        nactive += 1;
+      }
+    }
+
+    for (i = 1:n) {
+      double mu = alpha(1);
+
+      for (int a = 0; a < nactive; ++a) {
+        int kk = active[a];
+        mu += beta(kk) * x(i,kk);
+      }
+
+      y(i) ~ dnorm(mu, sigma);
+    }
+  }
+}
+
+block alpha(1), logsigma(1) {
+  double sigma = exp(logsigma(1));
+
+  alpha(1) ~ dnorm(0, 10);
+  logsigma(1) ~ dnorm(0, 2);
+
+  for (k = 1:p) {
+    beta(k) ~ dnorm(0, 1);
+  }
+
+  int nactive = 0;
+  int active[p];
+
+  for (k = 1:p) {
+    if (gamma(k) != 0) {
+      active[nactive] = k;
+      nactive += 1;
+    }
+  }
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (int a = 0; a < nactive; ++a) {
+      int kk = active[a];
+      mu += beta(kk) * x(i,kk);
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block gamma(j) {
+  double pi = inv_logit(logit_pi(1));
+  double sigma = exp(logsigma(1));
+
+  gamma(j) ~ dbern(pi);
+
+  int nactive = 0;
+  int active[p];
+
+  for (k = 1:p) {
+    if (gamma(k) != 0) {
+      active[nactive] = k;
+      nactive += 1;
+    }
+  }
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (int a = 0; a < nactive; ++a) {
+      int kk = active[a];
+      mu += beta(kk) * x(i,kk);
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block logit_pi(1) {
+  double pi = inv_logit(logit_pi(1));
+
+  logit_pi(1) ~ dnorm(-4.6, 1.5);
+
+  for (k = 1:p) {
+    gamma(k) ~ dbern(pi);
+  }
+}
+'
+
+mod_data <- list(
+  n = as.integer(n),
+  p = as.integer(p),
+  y = as.double(y),
+  x = x
+)
+
+fit <- XMCMC(
+  model = model_src,
+  data = mod_data,
+  samples = 10000L,
+  burnin = 1000L,
+  out = "chain_variable_selection.bin",
+  log_cache_bits = 20L
+)
+
+draws <- as.data.frame(read_XMCMC("chain_variable_selection.bin"))
+
+# -------------------------
+# Posterior summaries
+# -------------------------
+
+beta_cols <- paste0("beta[", seq_len(p), "]")
+gamma_cols <- paste0("gamma[", seq_len(p), "]")
+
+beta_draws <- as.matrix(draws[, beta_cols, drop = FALSE])
+gamma_draws <- as.matrix(draws[, gamma_cols, drop = FALSE])
+effect_draws <- beta_draws * gamma_draws
+
+pip <- colMeans(gamma_draws)
+beta_mean <- colMeans(beta_draws)
+effect_mean <- colMeans(effect_draws)
+effect_q025 <- apply(effect_draws, 2, quantile, probs = 0.025)
+effect_q500 <- apply(effect_draws, 2, quantile, probs = 0.500)
+effect_q975 <- apply(effect_draws, 2, quantile, probs = 0.975)
+
+selected_summary <- data.frame(
+  j = seq_len(p),
+  beta_true = beta_true,
+  pip = as.numeric(pip),
+  beta_mean = as.numeric(beta_mean),
+  effect_mean = as.numeric(effect_mean),
+  effect_q025 = as.numeric(effect_q025),
+  effect_q500 = as.numeric(effect_q500),
+  effect_q975 = as.numeric(effect_q975)
+)
+
+cat("\nPosterior summaries for true non-zero coefficients:\n")
+print(selected_summary[active, ], row.names = FALSE)
+
+cat("\nTop predictors by posterior inclusion probability:\n")
+top <- order(selected_summary$pip, decreasing = TRUE)[1:20]
+print(selected_summary[top, ], row.names = FALSE)
+
+cat("\nPosterior expected model size:\n")
+model_size <- rowSums(gamma_draws)
+print(c(
+  mean = mean(model_size),
+  q025 = quantile(model_size, 0.025),
+  median = quantile(model_size, 0.500),
+  q975 = quantile(model_size, 0.975)
+))
+
+cat("\nPosterior summaries for alpha, sigma, and pi:\n")
+scalar_summary <- data.frame(
+  alpha = draws$`alpha[1]`,
+  sigma = exp(draws$`logsigma[1]`),
+  pi = plogis(draws$`logit_pi[1]`),
+  model_size = model_size
+)
+print(data.frame(
+  parameter = names(scalar_summary),
+  mean = as.numeric(colMeans(scalar_summary)),
+  q025 = as.numeric(apply(scalar_summary, 2, quantile, probs = 0.025)),
+  q500 = as.numeric(apply(scalar_summary, 2, quantile, probs = 0.500)),
+  q975 = as.numeric(apply(scalar_summary, 2, quantile, probs = 0.975))
+))
+
+cat("\nESS for selected effects and scalar summaries:\n")
+ess_cols <- c(
+  "alpha[1]",
+  "logsigma[1]",
+  "logit_pi[1]",
+  paste0("beta[", active, "]"),
+  paste0("gamma[", active, "]")
+)
+ess_cols <- ess_cols[ess_cols %in% names(draws)]
+print(effectiveSize(as.mcmc(draws[, ess_cols, drop = FALSE])))
+
+op <- par(mfrow = c(3, 1), mar = c(3, 4, 2, 1))
+
+plot(pip, type = "h", main = "Posterior inclusion probabilities", xlab = "Predictor", ylab = "PIP")
+points(active, pip[active], pch = 19, col = 2)
+
+plot(model_size, type = "l", main = "Model size trace", xlab = "Saved draw", ylab = "Number included")
+abline(h = s, col = 2)
+
+plot(exp(draws$`logsigma[1]`), type = "l", main = "sigma trace", xlab = "Saved draw", ylab = "sigma")
+abline(h = sigma_true, col = 2)
+
+par(op)
+
+op <- par(mfrow = c(4, 1), mar = c(3, 4, 2, 1))
+plot(effect_draws[, active[1]], type = "l", main = paste0("gamma*beta trace: predictor ", active[1]), xlab = "Saved draw", ylab = "effect")
+abline(h = beta_true[active[1]], col = 2)
+plot(effect_draws[, active[2]], type = "l", main = paste0("gamma*beta trace: predictor ", active[2]), xlab = "Saved draw", ylab = "effect")
+abline(h = beta_true[active[2]], col = 2)
+plot(effect_draws[, active[3]], type = "l", main = paste0("gamma*beta trace: predictor ", active[3]), xlab = "Saved draw", ylab = "effect")
+abline(h = beta_true[active[3]], col = 2)
+plot(effect_draws[, active[4]], type = "l", main = paste0("gamma*beta trace: predictor ", active[4]), xlab = "Saved draw", ylab = "effect")
+abline(h = beta_true[active[4]], col = 2)
+par(op)
+
+unlink("chain_variable_selection.bin")
+unlink("chain_variable_selection.bin.metadata.rds")
+unlink("chain_variable_selection.bin.param_names.rds")
+```
