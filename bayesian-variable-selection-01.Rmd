@@ -58,8 +58,8 @@ set.seed(123)
 # Simulate sparse regression data
 # -------------------------
 
-n <- 150L
-p <- 500L
+n <- 500L
+p <- 1000L
 s <- 8L
 
 x <- matrix(rnorm(n * p), nrow = n, ncol = p)
@@ -351,10 +351,6 @@ block alpha(1), logsigma(1) {
   alpha(1) ~ dnorm(0, 10);
   logsigma(1) ~ dnorm(0, 2);
 
-  for (k = 1:p) {
-    beta(k) ~ dnorm(0, 1);
-  }
-
   int nactive = 0;
   int active[p];
 
@@ -403,6 +399,72 @@ block gamma(j) {
 
     y(i) ~ dnorm(mu, sigma);
   }
+}
+
+block logit_pi(1) {
+  double pi = inv_logit(logit_pi(1));
+
+  logit_pi(1) ~ dnorm(-4.6, 1.5);
+
+  for (k = 1:p) {
+    gamma(k) ~ dbern(pi);
+  }
+}
+'
+
+model_src <- '
+param alpha(1)
+param beta(p)
+param logsigma(1)
+param logit_pi(1)
+dparam gamma(p, 0, 1)
+
+func y_lpdf() {
+  double sigma = exp(logsigma(1));
+
+  int nactive = 0;
+  int active[p];
+
+  for (k = 1:p) {
+    if (gamma(k) != 0) {
+      active[nactive] = k;
+      nactive += 1;
+    }
+  }
+
+  for (i = 1:n) {
+    double mu = alpha(1);
+
+    for (a = 0:(nactive-1)) {
+      int kk = active[a];
+      mu += beta(kk) * x(i,kk);
+    }
+
+    y(i) ~ dnorm(mu, sigma);
+  }
+}
+
+block beta(j) {
+  beta(j) ~ dnorm(0, 1);
+
+  if (gamma(j) != 0) {
+    y_lpdf();
+  }
+}
+
+block alpha(1), logsigma(1) {
+  alpha(1) ~ dnorm(0, 10);
+  logsigma(1) ~ dnorm(0, 2);
+
+  y_lpdf();
+}
+
+block gamma(j) {
+  double pi = inv_logit(logit_pi(1));
+
+  gamma(j) ~ dbern(pi);
+
+  y_lpdf();
 }
 
 block logit_pi(1) {

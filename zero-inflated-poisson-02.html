@@ -408,8 +408,88 @@ param theta(7)
 dparam z(n, 0, 1)
 
 block theta(j) {
+  double il_theta1 = inv_logit(theta(1));
+  
   for (i = 1:n) {
-    z(i) ~ dbern(inv_logit(theta(1)));
+    z(i) ~ dbern(il_theta1);
+
+    if (z(i) == 0) {
+      if (y(i) != 0) return -INFINITY;
+    } else {
+      double eeta = exp(theta(2) + theta(3)*sex(i) + theta(4)*mar(i) + theta(5)*nokid(i) + theta(6)*pres(i) + theta(7)*ment(i));
+      y(i) ~ dpois(eeta);
+    }
+  }
+}
+
+block z(i) {
+  double il_theta1 = inv_logit(theta(1));
+  
+  z(i) ~ dbern(il_theta1);
+
+  if (z(i) == 0) {
+    if (y(i) != 0) return -INFINITY;
+  } else {
+    double eeta = exp(theta(2) + theta(3)*sex(i) + theta(4)*mar(i) + theta(5)*nokid(i) + theta(6)*pres(i) + theta(7)*ment(i));
+    y(i) ~ dpois(eeta);
+  }
+}
+&#39;
+
+model_src &lt;- &#39;
+param theta(7)
+dparam z(n, 0, 1)
+
+block theta(j) {
+  double il_theta1 = inv_logit(theta(1));
+  
+  for (i = 1:n) {
+    z(i) ~ dbern(il_theta1);
+
+    if (z(i) == 0 &amp;&amp; y(i) != 0) return -INFINITY;
+
+if (z(i) != 0) {
+    double eeta = exp(theta(2)
+        + theta(3)*sex(i)
+        + theta(4)*mar(i)
+        + theta(5)*nokid(i)
+        + theta(6)*pres(i)
+        + theta(7)*ment(i));
+
+    y(i) ~ dpois(eeta);
+}
+  }
+}
+
+block z(i) {
+  double il_theta1 = inv_logit(theta(1));
+  
+  z(i) ~ dbern(il_theta1);
+
+if (z(i) == 0 &amp;&amp; y(i) != 0) return -INFINITY;
+
+if (z(i) != 0) {
+    double eeta = exp(theta(2)
+        + theta(3)*sex(i)
+        + theta(4)*mar(i)
+        + theta(5)*nokid(i)
+        + theta(6)*pres(i)
+        + theta(7)*ment(i));
+
+    y(i) ~ dpois(eeta);
+}
+}
+&#39;
+
+model_src &lt;- &#39;
+param theta(7)
+dparam z(n, 0, 1)
+
+block theta(j) {
+  double il_theta1 = inv_logit(theta(1));
+
+  for (i = 1:n) {
+    z(i) ~ dbern(il_theta1);
 
     if (z(i) == 0) {
       if (y(i) != 0) return -INFINITY;
@@ -420,7 +500,9 @@ block theta(j) {
 }
 
 block z(i) {
-  z(i) ~ dbern(inv_logit(theta(1)));
+  double il_theta1 = inv_logit(theta(1));
+
+  z(i) ~ dbern(il_theta1);
 
   if (z(i) == 0) {
     if (y(i) != 0) return -INFINITY;
@@ -432,25 +514,12 @@ block z(i) {
 
 mod_data &lt;- list(
   n = n,
-
   y = y,
-  y_len = length(y),
-
   sex = sex,
-  sex_len = length(sex),
-
   mar = mar,
-  mar_len = length(mar),
-
   nokid = nokid,
-  nokid_len = length(nokid),
-
   pres = pres,
-  pres_len = length(pres),
-
   ment = ment,
-  ment_len = length(ment),
-
   theta_dim = 7L + n
 )
 
